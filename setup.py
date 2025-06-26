@@ -1,63 +1,52 @@
 import glob
 import os
-
-import torch
 from setuptools import find_packages, setup
-from torch.utils.cpp_extension import (
-    CUDA_HOME,
-    BuildExtension,
-    CppExtension,
-    CUDAExtension,
-)
+from torch.utils.cpp_extension import BuildExtension
 
 
-def get_extensions():
-    """Refer to torchvision."""
+class DeferredBuildExtension(BuildExtension):
+    def build_extensions(self):
+        import torch
+        from torch.utils.cpp_extension import CUDA_HOME, CUDAExtension, CppExtension
 
-    main_file = [os.path.join("src", "pybind.cpp")]
-    source_cuda = glob.glob(os.path.join("src", "*.cu"))
-    sources = main_file
-    extension = CppExtension
+        main_file = [os.path.join("src", "pybind.cpp")]
+        source_cuda = glob.glob(os.path.join("src", "*.cu"))
+        sources = list(main_file)
+        extension = CppExtension
+        define_macros = []
+        extra_compile_args = {}
 
-    define_macros = []
-    extra_compile_args = {}
-    if (torch.cuda.is_available() and (CUDA_HOME is not None)) or os.getenv(
-        "FORCE_CUDA", "0"
-    ) == "1":
-        extension = CUDAExtension
-        sources += source_cuda
-        define_macros += [("WITH_CUDA", None)]
-        nvcc_flags = os.getenv("NVCC_FLAGS", "")
-        if nvcc_flags == "":
-            nvcc_flags = ["-O3"]
-        else:
-            nvcc_flags = nvcc_flags.split(" ")
-        extra_compile_args = {
-            "cxx": ["-O3"],
-            "nvcc": nvcc_flags,
-        }
+        if (torch.cuda.is_available() and CUDA_HOME is not None) or os.getenv("FORCE_CUDA", "0") == "1":
+            extension = CUDAExtension
+            sources += source_cuda
+            define_macros += [("WITH_CUDA", None)]
+            nvcc_flags = os.getenv("NVCC_FLAGS", "")
+            nvcc_flags = nvcc_flags.split(" ") if nvcc_flags else ["-O3"]
+            extra_compile_args = {
+                "cxx": ["-O3"],
+                "nvcc": nvcc_flags,
+            }
 
-    sources = [s for s in sources]
-    include_dirs = ["src"]
-    print("sources:", sources)
+        self.extensions = [
+            extension(
+                "diso._C",
+                sources,
+                include_dirs=["src"],
+                define_macros=define_macros,
+                extra_compile_args=extra_compile_args,
+            )
+        ]
+        super().build_extensions()
 
-    ext_modules = [
-        extension(
-            "diso._C",
-            sources,
-            include_dirs=include_dirs,
-            define_macros=define_macros,
-            extra_compile_args=extra_compile_args,
-        )
-    ]
-    return ext_modules
 
 setup(
     name="diso",
     version="0.1.4",
+    author="Xiwei",
     author_email="xiwei@ucsd.edu",
-    keywords="differentiable iso-surface extraction",
     description="Differentiable Iso-Surface Extraction Package",
+    keywords="differentiable iso-surface extraction",
+    license="CC BY-NC 4.0",
     classifiers=[
         "Operating System :: POSIX :: Linux",
         "Operating System :: Microsoft :: Windows",
@@ -73,16 +62,14 @@ setup(
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
         "Topic :: Software Development :: Libraries :: Python Modules",
         "Topic :: Utilities",
     ],
-    license="CC BY-NC 4.0",
-    packages=find_packages(exclude=["tests"]),
     python_requires=">=3.6",
     install_requires=["trimesh"],
-    ext_modules=get_extensions(),
-    cmdclass={
-        "build_ext": BuildExtension.with_options(no_python_abi_suffix=True),
-    },
-    zip_safe=False
+    packages=find_packages(exclude=["tests"]),
+    ext_modules=[],  # extensions are added later inside build_ext
+    cmdclass={"build_ext": DeferredBuildExtension.with_options(no_python_abi_suffix=True)},
+    zip_safe=False,
 )
